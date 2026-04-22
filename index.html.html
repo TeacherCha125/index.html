@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Spelling Bee Master</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <style>
+        :root { --primary: #46178f; --white: #ffffff; }
+        body { 
+            font-family: 'Segoe UI', Tahoma, sans-serif; 
+            margin: 0; 
+            background: linear-gradient(rgba(0,0,0,0.6), rgba(0,0,0,0.6)), 
+                        url('https://images.unsplash.com/photo-1509062522246-3755977927d7?q=80&w=2000&auto=format&fit=crop');
+            background-size: cover;
+            background-attachment: fixed;
+            color: white;
+            display: flex; justify-content: center; align-items: center; min-height: 100vh;
+        }
+
+        /* Container Styles */
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(10px);
+            border-radius: 30px;
+            padding: 40px;
+            width: 90%; max-width: 900px;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            text-align: center;
+        }
+
+        /* Teacher UI Controls */
+        .sidebar { text-align: left; margin-bottom: 20px; }
+        .class-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 15px 0; }
+        .btn { padding: 12px; border: none; border-radius: 12px; cursor: pointer; font-weight: bold; transition: 0.3s; }
+        .btn-class { background: rgba(255,255,255,0.2); color: white; border: 1px solid white; }
+        .btn-class.active { background: #00e5ff; color: #1a1a1a; }
+        .btn-main { background: #eb1041; color: white; font-size: 1.1rem; margin-top: 15px; width: 100%; }
+
+        /* Main Display */
+        .timer-display { font-size: 5rem; font-weight: bold; margin: 10px 0; text-shadow: 2px 2px 10px rgba(0,0,0,0.5); }
+        #qrcode { background: white; padding: 15px; border-radius: 20px; display: inline-block; margin: 20px 0; border: 5px solid #46178f; }
+        
+        /* Leaderboard */
+        .leaderboard { background: rgba(255,255,255,0.9); color: #333; border-radius: 20px; padding: 20px; margin-top: 30px; }
+        .rank-row { display: flex; justify-content: space-between; padding: 12px; border-bottom: 1px solid #ddd; font-size: 1.3rem; }
+        .first-place { background: #ffd700; border-radius: 10px; font-weight: bold; }
+
+        /* Student View */
+        #studentUI { display: none; }
+        input, select { width: 100%; padding: 15px; border-radius: 12px; border: none; margin: 10px 0; font-size: 1.1rem; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+
+<div id="teacherUI" class="glass-panel">
+    <div style="display: flex; justify-content: space-between;">
+        <div class="sidebar">
+            <h2 id="classTitle">Select Class</h2>
+            <div class="class-grid" id="classGrid"></div>
+            <button class="btn btn-class" id="modeBtn" onclick="toggleMode()">Mode: Group</button>
+            <button class="btn btn-main" onclick="startRound()">🔥 START ROUND</button>
+            <button class="btn btn-main" style="background:#0542b9" onclick="revealRankings()">📢 REVEAL RANKINGS</button>
+        </div>
+        
+        <div>
+            <div class="timer-display" id="timer">30</div>
+            <div id="qrcode"></div>
+            <p><strong>SCAN TO JOIN GAME</strong></p>
+        </div>
+    </div>
+
+    <div class="leaderboard">
+        <h3 style="margin-top:0">🏆 Live Rankings</h3>
+        <div id="leaderList">Waiting for students to join...</div>
+    </div>
+</div>
+
+<div id="studentUI" class="glass-panel">
+    <h1>🐝 Spelling Bee</h1>
+    <div id="joinBox">
+        <div id="gArea">
+            <label>Group Number:</label>
+            <select id="sGroup"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option></select>
+        </div>
+        <div id="iArea" class="hidden">
+            <input type="text" id="sName" placeholder="Enter Your Name">
+        </div>
+        <button class="btn btn-main" onclick="studentJoin()">JOIN GAME</button>
+    </div>
+
+    <div id="playArea" class="hidden">
+        <h2 id="whoAmI"></h2>
+        <input type="text" id="sAns" placeholder="Type spelling here..." autocomplete="off">
+        <button class="btn btn-main" onclick="studentSubmit()">SUBMIT ANSWER</button>
+    </div>
+</div>
+
+<script>
+    let mode = 'group'; let activeClass = ''; let participants = {}; let submissions = []; let startTime = 0;
+    const classes = ['701','702','703','801','802','803','901','902','903'];
+    
+    // Setup Class Buttons
+    const grid = document.getElementById('classGrid');
+    classes.forEach(c => {
+        let b = document.createElement('button'); b.className = 'btn btn-class'; b.innerText = c;
+        b.onclick = () => { 
+            activeClass = c; document.getElementById('classTitle').innerText = "Class " + c;
+            document.querySelectorAll('.btn-class').forEach(btn => btn.classList.remove('active'));
+            b.classList.add('active'); updateQR();
+        };
+        grid.appendChild(b);
+    });
+
+    function toggleMode() {
+        mode = (mode === 'group') ? 'indiv' : 'group';
+        document.getElementById('modeBtn').innerText = "Mode: " + (mode === 'group' ? "Group" : "Individual");
+        document.getElementById('gArea').classList.toggle('hidden', mode === 'indiv');
+        document.getElementById('iArea').classList.toggle('hidden', mode === 'group');
+    }
+
+    function updateQR() {
+        document.getElementById('qrcode').innerHTML = "";
+        // This automatically detects your current IP/Address so students can join
+        new QRCode(document.getElementById("qrcode"), {
+            text: window.location.href.split('?')[0] + "?view=student",
+            width: 160, height: 160
+        });
+    }
+
+    // View Routing
+    if(window.location.search.includes('view=student')) {
+        document.getElementById('teacherUI').style.display = 'none';
+        document.getElementById('studentUI').style.display = 'block';
+    }
+
+    function studentJoin() {
+        let name = (mode === 'group') ? "Group " + document.getElementById('sGroup').value : document.getElementById('sName').value.trim();
+        if(!name) return;
+        if(participants[name]) return alert("Name taken! Please add a number (e.g., Jessica 2)");
+        participants[name] = {score: 0};
+        document.getElementById('whoAmI').innerText = name;
+        document.getElementById('joinBox').classList.add('hidden');
+        document.getElementById('playArea').classList.remove('hidden');
+    }
+
+    function studentSubmit() {
+        submissions.push({name: document.getElementById('whoAmI').innerText, ans: document.getElementById('sAns').value.trim(), time: Date.now() - startTime});
+        alert("Submitted! Check the projector.");
+        document.getElementById('sAns').value = "";
+    }
+
+    function startRound() {
+        let word = prompt("Enter the word for this round:");
+        if(!word) return;
+        submissions = []; startTime = Date.now();
+        let t = 30;
+        let cd = setInterval(() => {
+            t--; document.getElementById('timer').innerText = t;
+            if(t <= 0) { clearInterval(cd); alert("TIME IS UP!"); }
+        }, 1000);
+    }
+
+    function revealRankings() {
+        const list = document.getElementById('leaderList'); list.innerHTML = "";
+        // Sorting and adding points happens here
+        Object.entries(participants).sort((a,b) => b[1].score - a[1].score).forEach((p, i) => {
+            list.innerHTML += `<div class="rank-row ${i===0?'first-place':''}"><span>#${i+1} ${p[0]}</span><span>${p[1].score} pts</span></div>`;
+        });
+    }
+</script>
+</body>
+</html>
